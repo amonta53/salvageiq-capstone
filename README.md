@@ -14,6 +14,14 @@ The question that this project seeks to answer is:
 
 Rather than relying on the opinions of others about which parts will provide the best returns for salvage yard workers, this project will use real marketplace data from eBay to provide a true answer to this question for any given vehicle.
 
+## Full Dataset
+
+The full dataset used for this project exceeds GitHub file size limits and is not stored in this repository.
+
+For access to the complete dataset and structure details, see:
+
+[DATASET.md](DATASET.md)
+
 ## Approach
 
 Pull the past three months of eBay listing data and answer three things for each part:
@@ -156,7 +164,7 @@ salvageiq-capstone/
 │           │   └── scrape_checkpoint.json
 │           ├── processed/
 │           │   ├── cleansed_listings.csv
-│           │   ├── normalized_listings.csv
+│           │   ├── normalized_listings.cs
 │           │   └── market_summary.csv
 │           └── outputs/
 │               ├── analysis/
