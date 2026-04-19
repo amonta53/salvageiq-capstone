@@ -56,9 +56,14 @@ Thumbs.db
 # Entire run folders are created by the pipeline and should
 # not be version controlled.
 # =========================================================
+# Ignore all runtime run data
 data/runs/*
-# But allow the folder placeholder
+
+# Keep directory structure
 !data/runs/.gitkeep
+
+# Safety: ignore any nested content just in case
+data/runs/*/*
 
 # =========================================================
 # Logs and debug output
