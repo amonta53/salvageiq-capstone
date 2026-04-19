@@ -56,8 +56,9 @@ Thumbs.db
 # Entire run folders are created by the pipeline and should
 # not be version controlled.
 # =========================================================
-data/runs/
-
+data/runs/*
+# But allow the folder placeholder
+!data/runs/.gitkeep
 
 # =========================================================
 # Logs and debug output
@@ -66,7 +67,7 @@ data/runs/
 # =========================================================
 logs/
 *.log
-*.html
+ERROR_*.html
 
 
 # =========================================================
