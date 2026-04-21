@@ -186,6 +186,16 @@ salvageiq-capstone/
 │               └── debug/
 │                   └── ERROR_{year}_{make}_{model}_{part}_p{page}.html
 │
+├── outputs/
+|   ├── hypothesis/
+|   |   ├── hypothesis_test_results.csv
+|   │   └── hypothesis_test_pairs.csv
+│   └── visuals/
+│       ├── str_by_part.png
+│       ├── price_vs_str.png
+│       ├── opportunity_score_by_part.png
+|       └── hypothesis_diff_distribution.png
+│
 ├── main.py                      # primary pipeline entry point
 ├── run_hypothesis_from_run_id.py # re-run hypothesis only from existing run
 ├── vis_test.py                  # rebuild visuals from existing run outputs
@@ -193,6 +203,25 @@ salvageiq-capstone/
 ├── requirements.txt
 └── README.md
 ```
+
+### **Project Outputs**
+
+To provide evidence of a complete run of the pipeline, an /outputs directory has been added to the root of the repository. This directory contains the artifacts of a complete run of the pipeline.
+
+While the raw datasets and run histories of the pipeline are not published in this repository, these outputs help to verify that the pipeline is capable of fulfilling its intended functions.
+
+```text
+outputs/  
+├── hypothesis/  
+│   ├── hypothesis_test_results.csv  
+│   └── hypothesis_test_pairs.csv  
+└── visuals/  
+ ├── str_by_part.png  
+ ├── price_vs_str.png  
+ ├── opportunity_score_by_part.png  
+ └── hypothesis_diff_distribution.png
+```
+The outputs of the pipeline indicate the results of each phase of the SalvageIQ pipeline, from the analytical data to the insights and visualizations of those results.
 
 ## Data Flow
 
