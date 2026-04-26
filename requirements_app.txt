@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+requests
+pandas
+scipy
+playwright
+matplotlib

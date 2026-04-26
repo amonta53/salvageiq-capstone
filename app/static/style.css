@@ -1,0 +1,27 @@
+body {
+  background: #f6f7f9;
+}
+
+.hero {
+  background: linear-gradient(135deg, #172033, #243b55);
+  color: white;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  color: #b8d8ff;
+}
+
+.small-card {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.table thead th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #667085;
+}
