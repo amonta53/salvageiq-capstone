@@ -1,4 +1,4 @@
-# SalvageIQ Capstone
+# SalvageIQ 
 
 ## Salvage Vehicle Part Recommendation Engine
 
