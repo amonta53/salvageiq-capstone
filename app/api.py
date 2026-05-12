@@ -19,7 +19,9 @@ from app.db import (
     get_job,
     get_result_items,
     get_result_set_by_id,
+    get_user_settings,
     init_db,
+    update_user_settings,
     upsert_vehicle,
 )
 from app.salvage_service import SalvageIQRequest, run_vehicle_analysis
@@ -197,6 +199,39 @@ def get_results(result_set_id: int) -> dict:
         "source": rs["source"],
         "items": items,
     }
+
+
+# =========================================================
+# User settings
+# =========================================================
+
+class SettingsUpdate(BaseModel):
+    labor_rate_per_hour: float | None = Field(default=None, ge=0, le=500,
+        description="Your hourly labor rate in dollars.")
+    marketplace_fee_percent: float | None = Field(default=None, ge=0, le=0.5,
+        description="Marketplace fee as a decimal (e.g. 0.13 for 13%).")
+    default_shipping_adjustment: float | None = Field(default=None, ge=-1.0, le=1.0,
+        description="Multiplier adjustment applied to estimated shipping costs.")
+    risk_tolerance: str | None = Field(default=None,
+        description="low | medium | high — shifts Pull/Maybe thresholds.")
+
+
+@app.get("/api/settings")
+def get_settings() -> dict:
+    with get_db() as conn:
+        return get_user_settings(conn)
+
+
+@app.patch("/api/settings")
+def patch_settings(payload: SettingsUpdate) -> dict:
+    with get_db() as conn:
+        return update_user_settings(
+            conn,
+            labor_rate_per_hour=payload.labor_rate_per_hour,
+            marketplace_fee_percent=payload.marketplace_fee_percent,
+            default_shipping_adjustment=payload.default_shipping_adjustment,
+            risk_tolerance=payload.risk_tolerance,
+        )
 
 
 app.mount("/", StaticFiles(directory="app/static", html=True), name="static")

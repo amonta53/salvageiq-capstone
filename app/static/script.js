@@ -13,6 +13,58 @@ const jobProgress = document.getElementById("jobProgress");
 
 let _pollTimer = null;
 
+// =========================================================
+// Settings
+// =========================================================
+
+async function loadSettings() {
+  try {
+    const r = await fetch("/api/settings");
+    if (!r.ok) return;
+    const s = await r.json();
+    document.getElementById("laborRate").value   = s.labor_rate_per_hour ?? 25;
+    document.getElementById("feePercent").value  = s.marketplace_fee_percent != null
+      ? (s.marketplace_fee_percent * 100).toFixed(1)
+      : 13;
+    const riskEl = document.getElementById("riskTolerance");
+    if (s.risk_tolerance) riskEl.value = s.risk_tolerance;
+  } catch {
+    // non-fatal — defaults remain
+  }
+}
+
+document.getElementById("saveSettingsBtn").addEventListener("click", async () => {
+  const statusEl = document.getElementById("settingsSaveStatus");
+  const laborRate  = parseFloat(document.getElementById("laborRate").value);
+  const feePercent = parseFloat(document.getElementById("feePercent").value);
+  const risk       = document.getElementById("riskTolerance").value;
+
+  if (Number.isNaN(laborRate) || Number.isNaN(feePercent)) {
+    statusEl.textContent = "Invalid values.";
+    return;
+  }
+
+  try {
+    statusEl.textContent = "Saving...";
+    const r = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        labor_rate_per_hour:     laborRate,
+        marketplace_fee_percent: feePercent / 100,
+        risk_tolerance:          risk,
+      }),
+    });
+    if (!r.ok) throw new Error("Save failed.");
+    statusEl.textContent = "Saved.";
+    setTimeout(() => { statusEl.textContent = ""; }, 2000);
+  } catch {
+    statusEl.textContent = "Error saving.";
+  }
+});
+
+loadSettings();
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   _stopPolling();

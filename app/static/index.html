@@ -67,6 +67,59 @@
       </div>
     </section>
 
+    <!-- Scoring settings -->
+    <section class="mb-4">
+      <button class="btn btn-link text-secondary small px-0 text-decoration-none"
+              type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#settingsPanel"
+              aria-expanded="false">
+        ⚙ Scoring settings
+      </button>
+      <div class="collapse" id="settingsPanel">
+        <div class="card shadow-sm rounded-4 mt-2">
+          <div class="card-body p-4">
+            <div class="row g-3 align-items-end">
+              <div class="col-md-3">
+                <label for="laborRate" class="form-label">
+                  Labor rate
+                  <span class="text-secondary small">($/hr)</span>
+                </label>
+                <input id="laborRate" type="number" class="form-control"
+                       min="0" max="500" step="1" placeholder="25" />
+              </div>
+              <div class="col-md-3">
+                <label for="feePercent" class="form-label">
+                  Marketplace fee
+                  <span class="text-secondary small">(%)</span>
+                </label>
+                <input id="feePercent" type="number" class="form-control"
+                       min="0" max="50" step="0.1" placeholder="13" />
+              </div>
+              <div class="col-md-3">
+                <label for="riskTolerance" class="form-label">Risk tolerance</label>
+                <select id="riskTolerance" class="form-select">
+                  <option value="low">Low — only clear wins</option>
+                  <option value="medium" selected>Medium (default)</option>
+                  <option value="high">High — cast a wider net</option>
+                </select>
+              </div>
+              <div class="col-md-3 d-flex align-items-end gap-2">
+                <button id="saveSettingsBtn" type="button" class="btn btn-outline-secondary">
+                  Save
+                </button>
+                <span id="settingsSaveStatus" class="small text-secondary"></span>
+              </div>
+            </div>
+            <div class="mt-3 small text-secondary">
+              These values are used to calculate <strong>Estimated Net Value</strong> for every part.
+              Changes take effect on the next search.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="summary" class="mb-3"></section>
     <section id="jobProgress" class="d-none"></section>
     <section id="results"></section>

@@ -20,6 +20,7 @@ from app.db import (
     complete_result_set,
     create_result_set,
     get_db,
+    get_user_settings,
     insert_result_items,
     update_job,
 )
@@ -88,8 +89,14 @@ def run_vehicle_analysis(
         run_pipeline(config)
         progress("Scoring results...", 80)
 
+        with get_db() as conn:
+            user_settings = get_user_settings(conn)
+
         top_path = config.top_10_output_csv_path
-        ranked_parts = [enrich_item(item) for item in _load_ranked_parts(top_path)]
+        ranked_parts = [
+            enrich_item(item, settings=user_settings)
+            for item in _load_ranked_parts(top_path)
+        ]
 
         progress("Saving results...", 90)
         with get_db() as conn:

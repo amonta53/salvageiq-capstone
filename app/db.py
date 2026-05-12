@@ -107,8 +107,17 @@ def init_db() -> None:
                 started_at TEXT,
                 completed_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS user_settings (
+                id INTEGER PRIMARY KEY DEFAULT 1 CHECK(id = 1),
+                labor_rate_per_hour REAL NOT NULL DEFAULT 25.0,
+                marketplace_fee_percent REAL NOT NULL DEFAULT 0.13,
+                default_shipping_adjustment REAL NOT NULL DEFAULT 0.0,
+                risk_tolerance TEXT NOT NULL DEFAULT 'medium'
+            );
         """)
         _seed_pull_profiles(conn)
+        _seed_user_settings(conn)
 
 
 # =========================================================
@@ -148,6 +157,17 @@ def _seed_pull_profiles(conn: sqlite3.Connection) -> None:
             )
             for part_name, p in PULL_PROFILES.items()
         ],
+    )
+
+
+def _seed_user_settings(conn: sqlite3.Connection) -> None:
+    """Insert the default settings row if it doesn't exist yet."""
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO user_settings (id, labor_rate_per_hour, marketplace_fee_percent,
+            default_shipping_adjustment, risk_tolerance)
+        VALUES (1, 25.0, 0.13, 0.0, 'medium')
+        """
     )
 
 
@@ -374,3 +394,54 @@ def update_job(
 def get_job(conn: sqlite3.Connection, job_id: str) -> dict | None:
     row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     return _row_to_dict(row)
+
+
+# =========================================================
+# User settings
+# =========================================================
+
+def get_user_settings(conn: sqlite3.Connection) -> dict:
+    """Return the single user settings row, falling back to defaults."""
+    row = conn.execute("SELECT * FROM user_settings WHERE id = 1").fetchone()
+    if row:
+        return dict(row)
+    return {
+        "labor_rate_per_hour": 25.0,
+        "marketplace_fee_percent": 0.13,
+        "default_shipping_adjustment": 0.0,
+        "risk_tolerance": "medium",
+    }
+
+
+def update_user_settings(
+    conn: sqlite3.Connection,
+    *,
+    labor_rate_per_hour: float | None = None,
+    marketplace_fee_percent: float | None = None,
+    default_shipping_adjustment: float | None = None,
+    risk_tolerance: str | None = None,
+) -> dict:
+    """Patch whichever settings fields are supplied; return the updated row."""
+    fields: list[str] = []
+    values: list[Any] = []
+
+    if labor_rate_per_hour is not None:
+        fields.append("labor_rate_per_hour = ?")
+        values.append(labor_rate_per_hour)
+    if marketplace_fee_percent is not None:
+        fields.append("marketplace_fee_percent = ?")
+        values.append(marketplace_fee_percent)
+    if default_shipping_adjustment is not None:
+        fields.append("default_shipping_adjustment = ?")
+        values.append(default_shipping_adjustment)
+    if risk_tolerance is not None:
+        fields.append("risk_tolerance = ?")
+        values.append(risk_tolerance)
+
+    if fields:
+        conn.execute(
+            f"UPDATE user_settings SET {', '.join(fields)} WHERE id = 1",
+            values,
+        )
+
+    return get_user_settings(conn)
