@@ -43,7 +43,12 @@
         <form id="lookupForm" class="row g-3">
           <div class="col-md-12">
             <label for="vin" class="form-label">VIN</label>
-            <input id="vin" class="form-control" maxlength="17" placeholder="17-character VIN — optional, but precise" />
+            <div class="input-group">
+              <input id="vin" class="form-control" maxlength="17" placeholder="17-character VIN — optional, but precise" />
+              <button id="scanVinBtn" type="button" class="btn btn-outline-secondary" title="Scan VIN barcode">
+                📷 Scan
+              </button>
+            </div>
             <div class="form-text">VIN takes priority. Leave blank to use year / make / model.</div>
           </div>
           <div class="col-md-2">
@@ -142,7 +147,30 @@
       <div id="historyList"></div>
     </section>
   </main>
+  <!-- VIN scanner modal -->
+  <div class="modal fade" id="scanModal" tabindex="-1" aria-labelledby="scanModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title" id="scanModalLabel">Scan VIN Barcode</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body pt-2">
+          <div class="scan-viewport rounded-3 overflow-hidden bg-dark mb-3">
+            <video id="scanVideo" class="w-100 d-block"></video>
+            <div class="scan-guide"></div>
+          </div>
+          <p id="scanStatus" class="small text-secondary mb-1">Initializing camera…</p>
+          <p class="small text-muted mb-0">
+            <strong>Tip:</strong> The VIN barcode is on the door jamb sticker — driver's side, edge of the door opening.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
   <script src="/script.js"></script>
 </body>
 </html>

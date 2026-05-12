@@ -72,8 +72,12 @@ loadSettings();
 // Search
 // =========================================================
 
-form.addEventListener("submit", async (event) => {
+form.addEventListener("submit", (event) => {
   event.preventDefault();
+  runSearch();
+});
+
+async function runSearch() {
   _stopPolling();
   setLoading(true);
   clearOutput();
@@ -112,7 +116,7 @@ form.addEventListener("submit", async (event) => {
     results.innerHTML = `<div class="alert alert-danger rounded-4">${escapeHtml(error.message)}</div>`;
     setLoading(false);
   }
-});
+}
 
 // =========================================================
 // Polling
@@ -238,7 +242,7 @@ function renderHistory(searches) {
           <span class="text-secondary small flex-shrink-0">${age}</span>
         </div>
         <button class="btn btn-sm btn-outline-secondary flex-shrink-0"
-                onclick="rerunSearch(${s.year}, ${JSON.stringify(s.make)}, ${JSON.stringify(s.model)})">
+                onclick="rerunSearch(${s.year}, ${escapeHtml(JSON.stringify(s.make))}, ${escapeHtml(JSON.stringify(s.model))})">
           Re-run
         </button>
       </div>
@@ -247,16 +251,78 @@ function renderHistory(searches) {
 }
 
 function rerunSearch(year, make, model) {
-  document.getElementById("vin").value   = "";
-  document.getElementById("year").value  = year;
-  document.getElementById("make").value  = make;
-  document.getElementById("model").value = model;
-  document.getElementById("trim").value  = "";
+  document.getElementById("vin").value    = "";
+  document.getElementById("year").value   = year;
+  document.getElementById("make").value   = make;
+  document.getElementById("model").value  = model;
+  document.getElementById("trim").value   = "";
   document.getElementById("engine").value = "";
-  form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+  runSearch();
 }
 
 loadHistory();
+
+// =========================================================
+// VIN Scanner
+// =========================================================
+
+let _codeReader = null;
+const scanModal = document.getElementById("scanModal");
+
+document.getElementById("scanVinBtn").addEventListener("click", () => {
+  bootstrap.Modal.getOrCreateInstance(scanModal).show();
+});
+
+scanModal.addEventListener("shown.bs.modal",  startScanner);
+scanModal.addEventListener("hide.bs.modal",   stopScanner);
+
+async function startScanner() {
+  const video    = document.getElementById("scanVideo");
+  const statusEl = document.getElementById("scanStatus");
+
+  statusEl.textContent = "Starting camera…";
+
+  if (typeof ZXing === "undefined") {
+    statusEl.textContent = "Scanner library failed to load. Enter VIN manually.";
+    return;
+  }
+
+  try {
+    _codeReader = new ZXing.BrowserMultiFormatReader();
+    statusEl.textContent = "Point camera at the VIN barcode…";
+
+    await _codeReader.decodeFromVideoDevice(null, video, (result, err) => {
+      if (!result) return;
+
+      // Strip characters that can't appear in a VIN (I, O, Q)
+      const text = result.getText().replace(/[^A-HJ-NPR-Z0-9]/gi, "").toUpperCase();
+
+      if (text.length === 17) {
+        document.getElementById("vin").value = text;
+        stopScanner();
+        bootstrap.Modal.getInstance(scanModal).hide();
+      } else if (text.length > 3) {
+        statusEl.textContent = `Read: ${text} — not a VIN, keep scanning`;
+      }
+    });
+
+  } catch (err) {
+    if (err.name === "NotAllowedError") {
+      statusEl.textContent = "Camera permission denied. Enter VIN manually.";
+    } else if (err.name === "NotFoundError") {
+      statusEl.textContent = "No camera detected. Enter VIN manually.";
+    } else {
+      statusEl.textContent = `Camera error: ${err.message}`;
+    }
+  }
+}
+
+function stopScanner() {
+  if (_codeReader) {
+    _codeReader.reset();
+    _codeReader = null;
+  }
+}
 
 // =========================================================
 // UI helpers

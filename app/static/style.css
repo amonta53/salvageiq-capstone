@@ -86,6 +86,32 @@ body {
 }
 
 /* =========================================================
+   VIN scanner
+   ========================================================= */
+.scan-viewport {
+  position: relative;
+  max-height: 280px;
+}
+
+.scan-viewport video {
+  max-height: 280px;
+  object-fit: cover;
+}
+
+/* Blue targeting line to guide barcode alignment */
+.scan-guide {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 2px;
+  background: rgba(46, 163, 242, 0.85);
+  box-shadow: 0 0 10px rgba(46, 163, 242, 0.7);
+  pointer-events: none;
+}
+
+/* =========================================================
    History
    ========================================================= */
 .history-row {
