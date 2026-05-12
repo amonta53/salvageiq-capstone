@@ -70,16 +70,18 @@ def build_vehicle_key(vehicle: VehicleIdentity) -> str:
     """
     Build a stable, lowercase cache key from a vehicle identity.
 
-    Example: 2017|chrysler|pacifica|touring
+    Trim is intentionally excluded: the scraping pipeline does not
+    differentiate by trim, and NHTSA decode can return inconsistent
+    or absent trim values for the same VIN across calls — including
+    the key would cause perpetual cache misses.
+
+    Example: 2017|chrysler|pacifica
     """
-    parts = [
+    return "|".join([
         str(vehicle.year),
         (vehicle.make or "").strip().lower(),
         (vehicle.model or "").strip().lower(),
-        (vehicle.trim or "").strip().lower(),
-    ]
-    # strip trailing empty segment when trim is absent
-    return "|".join(p for p in parts if p)
+    ])
 
 
 def decode_vin_with_nhtsa(vin: str) -> VehicleIdentity:

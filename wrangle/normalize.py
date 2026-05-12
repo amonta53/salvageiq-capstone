@@ -257,7 +257,7 @@ def run_normalization(cleansed_csv_path: str, normalized_csv_path: str) -> pd.Da
     if df.empty:
         df = df.reindex(columns=NORMALIZED_COLUMNS)
         df.to_csv(normalized_csv_path, index=False)
-        return df
+        return df, {"removed_count": 0, "removed_rate": 0.0}
     
     # =========================================================
     # Stage 2: Standardization (make, model, part)

@@ -3,15 +3,18 @@
 // SalvageIQ front-end behavior
 // =========================================================
 
-const form        = document.getElementById("lookupForm");
-const submitBtn   = document.getElementById("submitBtn");
-const statusText  = document.getElementById("statusText");
-const summary     = document.getElementById("summary");
-const results     = document.getElementById("results");
-const caveats     = document.getElementById("caveats");
-const jobProgress = document.getElementById("jobProgress");
+const form           = document.getElementById("lookupForm");
+const submitBtn      = document.getElementById("submitBtn");
+const statusText     = document.getElementById("statusText");
+const summary        = document.getElementById("summary");
+const results        = document.getElementById("results");
+const caveats        = document.getElementById("caveats");
+const jobProgress    = document.getElementById("jobProgress");
+const historySection = document.getElementById("historySection");
+const historyList    = document.getElementById("historyList");
 
-let _pollTimer = null;
+let _pollTimer    = null;
+let _jobStartTime = null;
 
 // =========================================================
 // Settings
@@ -65,6 +68,10 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
 
 loadSettings();
 
+// =========================================================
+// Search
+// =========================================================
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   _stopPolling();
@@ -90,12 +97,14 @@ form.addEventListener("submit", async (event) => {
       renderVehicle(data.vehicle);
       renderResults(data.items || []);
       setLoading(false);
+      loadHistory();
       if (data.refresh_job_id) {
         _pollStatus(data.refresh_job_id, /* silent */ true);
       }
     } else {
       // mode === "job"
       renderVehicle(data.vehicle);
+      _jobStartTime = Date.now();
       _pollStatus(data.job_id, /* silent */ false);
     }
 
@@ -129,6 +138,7 @@ function _pollStatus(jobId, silent) {
           hideJobProgress();
           renderCacheBadge("fresh", data.scraped_at);
           renderResults(data.items || []);
+          loadHistory();
         }
         setLoading(false);
 
@@ -158,6 +168,7 @@ function _stopPolling() {
     clearInterval(_pollTimer);
     _pollTimer = null;
   }
+  _jobStartTime = null;
 }
 
 // =========================================================
@@ -165,24 +176,87 @@ function _stopPolling() {
 // =========================================================
 
 function buildPayload() {
-  const vin   = document.getElementById("vin").value.trim();
-  const year  = document.getElementById("year").value.trim();
-  const make  = document.getElementById("make").value.trim();
-  const model = document.getElementById("model").value.trim();
-  const trim  = document.getElementById("trim").value.trim();
-  const topN  = Number(document.getElementById("topN").value || 10);
+  const vin    = document.getElementById("vin").value.trim();
+  const year   = document.getElementById("year").value.trim();
+  const make   = document.getElementById("make").value.trim();
+  const model  = document.getElementById("model").value.trim();
+  const trim   = document.getElementById("trim").value.trim();
+  const engine = document.getElementById("engine").value.trim();
+  const topN   = Number(document.getElementById("topN").value || 10);
 
   return {
-    vin:   vin   || null,
-    year:  year  ? Number(year) : null,
-    make:  make  || null,
-    model: model || null,
-    trim:  trim  || null,
-    top_n: topN,
+    vin:    vin    || null,
+    year:   year   ? Number(year) : null,
+    make:   make   || null,
+    model:  model  || null,
+    trim:   trim   || null,
+    engine: engine || null,
+    top_n:  topN,
     max_pages_per_search: 2,
     window_days: 90,
   };
 }
+
+// =========================================================
+// History
+// =========================================================
+
+async function loadHistory() {
+  try {
+    const r = await fetch("/api/history");
+    if (!r.ok) return;
+    const data = await r.json();
+    renderHistory(data.searches || []);
+  } catch {
+    // non-fatal
+  }
+}
+
+function renderHistory(searches) {
+  if (!searches.length) {
+    historySection.style.display = "none";
+    return;
+  }
+
+  historySection.style.display = "";
+
+  const now = Date.now();
+
+  historyList.innerHTML = searches.map((s) => {
+    const vehicleLabel = [s.year, s.make, s.model, s.trim].filter(Boolean).join(" ");
+    const age          = s.scraped_at ? _relativeTime(s.scraped_at) : "unknown";
+    const expires      = s.cache_expires_at ? new Date(s.cache_expires_at).getTime() : 0;
+    const isFresh      = expires > now;
+    const badgeCls     = isFresh ? "bg-success" : "bg-secondary";
+    const badgeLabel   = isFresh ? "Fresh" : "Stale";
+
+    return `
+      <div class="history-row d-flex align-items-center justify-content-between gap-3 py-2">
+        <div class="d-flex align-items-center gap-2 flex-grow-1 min-w-0">
+          <span class="fw-semibold text-truncate">${escapeHtml(vehicleLabel)}</span>
+          <span class="badge ${badgeCls} flex-shrink-0">${badgeLabel}</span>
+          <span class="text-secondary small flex-shrink-0">${age}</span>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary flex-shrink-0"
+                onclick="rerunSearch(${s.year}, ${JSON.stringify(s.make)}, ${JSON.stringify(s.model)})">
+          Re-run
+        </button>
+      </div>
+    `;
+  }).join("");
+}
+
+function rerunSearch(year, make, model) {
+  document.getElementById("vin").value   = "";
+  document.getElementById("year").value  = year;
+  document.getElementById("make").value  = make;
+  document.getElementById("model").value = model;
+  document.getElementById("trim").value  = "";
+  document.getElementById("engine").value = "";
+  form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+}
+
+loadHistory();
 
 // =========================================================
 // UI helpers
@@ -194,9 +268,9 @@ function setLoading(isLoading) {
 }
 
 function clearOutput() {
-  summary.innerHTML   = "";
-  results.innerHTML   = "";
-  caveats.innerHTML   = "";
+  summary.innerHTML     = "";
+  results.innerHTML     = "";
+  caveats.innerHTML     = "";
   jobProgress.innerHTML = "";
   jobProgress.classList.add("d-none");
 }
@@ -229,14 +303,22 @@ function renderCacheBadge(cacheStatus, scrapedAt) {
 
 function renderJobProgress(job) {
   jobProgress.classList.remove("d-none");
-  const pct = job.progress_percent || 0;
-  const msg = escapeHtml(job.progress_message || job.status);
+  const pct     = job.progress_percent || 0;
+  const msg     = escapeHtml(job.progress_message || job.status);
+  const elapsed = _jobStartTime ? _elapsedTime(_jobStartTime) : "";
+  const elapsedHtml = elapsed
+    ? `<span class="small text-secondary">${elapsed}</span>`
+    : "";
+
   jobProgress.innerHTML = `
     <div class="card shadow-sm rounded-4 mb-4">
       <div class="card-body">
-        <div class="d-flex justify-content-between mb-1">
+        <div class="d-flex justify-content-between align-items-center mb-1">
           <span class="small fw-semibold">${msg}</span>
-          <span class="small text-secondary">${pct}%</span>
+          <div class="d-flex gap-3 align-items-center">
+            ${elapsedHtml}
+            <span class="small text-secondary">${pct}%</span>
+          </div>
         </div>
         <div class="progress" style="height:8px">
           <div class="progress-bar progress-bar-striped progress-bar-animated"
@@ -262,17 +344,17 @@ function renderResults(items) {
   }
 
   const rows = items.map((item) => {
-    const verdict    = item.recommendation || null;
-    const badgeCls   = verdictBadge(verdict);
-    const rankLabel  = item.vehicle_rank ?? item.rank ?? "";
-    const partName   = item.part_name ?? item.part ?? "";
-    const price      = item.median_price ?? item.median_sold_price;
-    const net        = item.estimated_net_value;
-    const str        = item.sell_through_rate ?? item.str;
-    const conf       = item.confidence_score;
-    const opp        = item.opportunity_score;
-    const pullMins   = item.estimated_pull_minutes;
-    const diff       = item.difficulty_score;
+    const verdict   = item.recommendation || null;
+    const badgeCls  = verdictBadge(verdict);
+    const rankLabel = item.vehicle_rank ?? item.rank ?? "";
+    const partName  = item.part_name ?? item.part ?? "";
+    const price     = item.median_price ?? item.median_sold_price;
+    const net       = item.estimated_net_value;
+    const str       = item.sell_through_rate ?? item.str;
+    const conf      = item.confidence_score;
+    const opp       = item.opportunity_score;
+    const pullMins  = item.estimated_pull_minutes;
+    const diff      = item.difficulty_score;
 
     const netCell = net !== null && net !== undefined
       ? `<span class="${net >= 75 ? "text-success fw-semibold" : net >= 25 ? "text-warning-emphasis" : "text-danger"}">${formatMoney(net)}</span>`
@@ -368,7 +450,7 @@ function escapeHtml(value) {
 
 function _relativeTime(isoString) {
   try {
-    const diff = Date.now() - new Date(isoString).getTime();
+    const diff  = Date.now() - new Date(isoString).getTime();
     const mins  = Math.floor(diff / 60000);
     const hours = Math.floor(mins / 60);
     const days  = Math.floor(hours / 24);
@@ -379,4 +461,10 @@ function _relativeTime(isoString) {
   } catch {
     return "";
   }
+}
+
+function _elapsedTime(startMs) {
+  const secs = Math.floor((Date.now() - startMs) / 1000);
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }

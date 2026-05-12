@@ -73,11 +73,23 @@ def summarize_sold_group(
         }
     )
 
+_SOLD_SUMMARY_COLS = [
+    "year", "make", "model", "part",
+    "sold_count", "median_sold_price", "mean_sold_price",
+    "min_sold_price", "max_sold_price", "sold_timestamp",
+]
+
+
 def build_sold_summary(
     sold_df: pd.DataFrame,
     config: Any,
 ) -> pd.DataFrame:
-    """Summarize sold listings by year, make, model, and part."""
+    """Summarize sold listings by year, make, model, and part.
+
+    Uses explicit group iteration instead of groupby().apply() to stay
+    compatible across pandas versions (3.0 changed apply's return type
+    when the applied function returns a Series).
+    """
     sold_cols = config.sold_column_map
 
     sold_group_cols = [
@@ -93,29 +105,36 @@ def build_sold_summary(
         "sold_df",
     )
 
-    # To keep row level data, but trim price outliers for the median and mean
-    # Use the summarize_sold_group function to build the summary stats for each group.
-    sold_summary = (
-        sold_df.groupby(sold_group_cols, dropna=False)
-        .apply(
-            lambda group: summarize_sold_group(
-                group,
-                price_column=sold_cols["price"],
-                timestamp_column=sold_cols["timestamp"],
-            )
-        )
-        .reset_index()
-        .rename(
-            columns={
-                sold_cols["year"]: "year",
-                sold_cols["make"]: "make",
-                sold_cols["model"]: "model",
-                sold_cols["part"]: "part",
-            }
-        )
-    )
+    _empty = pd.DataFrame(columns=_SOLD_SUMMARY_COLS)
 
-    return sold_summary
+    if sold_df.empty:
+        return _empty
+
+    rows = []
+    for keys, group in sold_df.groupby(sold_group_cols, dropna=False):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        stats = summarize_sold_group(
+            group,
+            price_column=sold_cols["price"],
+            timestamp_column=sold_cols["timestamp"],
+        )
+        row = dict(zip(sold_group_cols, keys))
+        row.update(stats.to_dict())
+        rows.append(row)
+
+    if not rows:
+        return _empty
+
+    return (
+        pd.DataFrame(rows)
+        .rename(columns={
+            sold_cols["year"]:  "year",
+            sold_cols["make"]:  "make",
+            sold_cols["model"]: "model",
+            sold_cols["part"]:  "part",
+        })
+    )
 
 
 # =========================================================

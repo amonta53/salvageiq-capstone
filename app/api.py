@@ -17,6 +17,7 @@ from app.db import (
     create_job,
     get_db,
     get_job,
+    get_recent_searches,
     get_result_items,
     get_result_set_by_id,
     get_user_settings,
@@ -63,6 +64,7 @@ class SearchRequest(BaseModel):
     make: str | None = None
     model: str | None = None
     trim: str | None = None
+    engine: str | None = None
     top_n: int = Field(default=10, ge=1, le=25)
     max_pages_per_search: int = Field(default=2, ge=1, le=5)
     window_days: int = Field(default=90, ge=30, le=365)
@@ -216,6 +218,21 @@ class SettingsUpdate(BaseModel):
         description="low | medium | high — shifts Pull/Maybe thresholds.")
 
 
+# =========================================================
+# History
+# =========================================================
+
+@app.get("/api/history")
+def get_history(limit: int = 15) -> dict:
+    with get_db() as conn:
+        searches = get_recent_searches(conn, limit=limit)
+    return {"searches": searches}
+
+
+# =========================================================
+# User settings
+# =========================================================
+
 @app.get("/api/settings")
 def get_settings() -> dict:
     with get_db() as conn:
@@ -234,4 +251,5 @@ def patch_settings(payload: SettingsUpdate) -> dict:
         )
 
 
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 app.mount("/", StaticFiles(directory="app/static", html=True), name="static")

@@ -92,6 +92,9 @@ def init_db() -> None:
                 recommendation TEXT,
                 confidence_score REAL,
                 vehicle_rank INTEGER,
+                estimated_pull_minutes INTEGER,
+                difficulty_score INTEGER,
+                shipping_class TEXT,
                 FOREIGN KEY(result_set_id) REFERENCES result_sets(id)
             );
 
@@ -116,6 +119,7 @@ def init_db() -> None:
                 risk_tolerance TEXT NOT NULL DEFAULT 'medium'
             );
         """)
+        _migrate(conn)
         _seed_pull_profiles(conn)
         _seed_user_settings(conn)
 
@@ -123,6 +127,24 @@ def init_db() -> None:
 # =========================================================
 # Utility
 # =========================================================
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """
+    Additive schema migrations for existing databases.
+    SQLite supports ADD COLUMN but not IF NOT EXISTS, so we catch the
+    OperationalError that fires when the column already exists.
+    """
+    new_columns = [
+        ("result_items", "estimated_pull_minutes", "INTEGER"),
+        ("result_items", "difficulty_score",        "INTEGER"),
+        ("result_items", "shipping_class",          "TEXT"),
+    ]
+    for table, column, col_type in new_columns:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
 
 def _seed_pull_profiles(conn: sqlite3.Connection) -> None:
     """
@@ -301,8 +323,9 @@ def insert_result_items(
         INSERT INTO result_items (
             result_set_id, part_name, sold_count, active_count,
             sell_through_rate, median_price, opportunity_score,
-            estimated_net_value, recommendation, confidence_score, vehicle_rank
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            estimated_net_value, recommendation, confidence_score, vehicle_rank,
+            estimated_pull_minutes, difficulty_score, shipping_class
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -317,6 +340,9 @@ def insert_result_items(
                 item.get("recommendation"),
                 item.get("confidence_score"),
                 item.get("vehicle_rank"),
+                item.get("estimated_pull_minutes"),
+                item.get("difficulty_score"),
+                item.get("shipping_class"),
             )
             for item in items
         ],
@@ -394,6 +420,37 @@ def update_job(
 def get_job(conn: sqlite3.Connection, job_id: str) -> dict | None:
     row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     return _row_to_dict(row)
+
+
+def get_recent_searches(conn: sqlite3.Connection, limit: int = 15) -> list[dict]:
+    """
+    Return the most recent completed result set per vehicle, newest first.
+    Joins vehicles so we have display-friendly year/make/model.
+    """
+    rows = conn.execute(
+        """
+        SELECT
+            v.year, v.make, v.model, v.trim,
+            v.vehicle_key,
+            rs.id          AS result_set_id,
+            rs.scraped_at,
+            rs.cache_expires_at
+        FROM vehicles v
+        INNER JOIN result_sets rs
+            ON rs.vehicle_key = v.vehicle_key
+           AND rs.id = (
+               SELECT id FROM result_sets
+               WHERE vehicle_key = v.vehicle_key
+                 AND status = 'completed'
+               ORDER BY scraped_at DESC
+               LIMIT 1
+           )
+        ORDER BY rs.scraped_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # =========================================================

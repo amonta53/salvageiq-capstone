@@ -3,6 +3,24 @@ body {
 }
 
 /* =========================================================
+   Site header + logo images
+   logo_main.png — 1370 × 386 px (light bg, horizontal logo)
+   logo_dark.png — 884  × 327 px (dark navy bg, with tagline)
+   ========================================================= */
+
+.site-header {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0.75rem 0;
+}
+
+.site-logo {
+  display: block;
+  height: 44px;
+  width: auto;
+}
+
+/* =========================================================
    Hero
    ========================================================= */
 .hero {
@@ -65,6 +83,16 @@ body {
    ========================================================= */
 .progress-bar {
   background-color: #2ea3f2;
+}
+
+/* =========================================================
+   History
+   ========================================================= */
+.history-row {
+  border-bottom: 1px solid #f0f1f3;
+}
+.history-row:last-child {
+  border-bottom: none;
 }
 
 /* =========================================================
