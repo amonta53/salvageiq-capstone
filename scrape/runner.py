@@ -2,22 +2,27 @@
 # runner.py
 #
 # Purpose:
-#     Async httpx scrape runner for SalvageIQ raw listing collection.
-#     Replaces Playwright with concurrent HTTP requests + BeautifulSoup parsing.
+#     Playwright-based scrape runner for SalvageIQ raw listing collection.
+#     Uses a headless Chromium browser to handle eBay's DataDome JS challenge
+#     interstitial, which blocks pure HTTP clients (httpx, requests, curl).
 #
 # Responsibilities:
 #     1. Execute configured eBay searches across vehicle/part combinations
 #        concurrently using asyncio.gather + a Semaphore
-#     2. Extract raw listing rows and write them to the raw CSV
+#     2. Extract raw listing rows from the captured HTML
 #     3. Capture run-level and search-level provenance fields
 #     4. Support checkpoint/resume
 #
 # Notes:
-#     - eBay search result pages are server-side rendered — no JS execution needed
-#     - BeautifulSoup replaces Playwright DOM locators
+#     - eBay serves a DataDome "Pardon Our Interruption" JS challenge to
+#       non-browser HTTP clients.  Playwright (headless Chromium) executes
+#       the challenge JS naturally, obtains the datadome cookie, and gets
+#       redirected to the real search results.
+#     - HTML parsing stays with BeautifulSoup — Playwright just captures the
+#       final rendered HTML after all redirects complete.
 #     - All searches for a given pass (sold/all) run concurrently up to
-#       _MAX_CONCURRENCY simultaneous connections
-#     - run_scrape() is the sync entry point; it bridges to asyncio internally
+#       _MAX_CONCURRENCY simultaneous browser pages.
+#     - run_scrape() is the sync entry point; it bridges to asyncio internally.
 # =========================================================
 
 from __future__ import annotations
@@ -30,9 +35,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
 import pandas as pd
 from bs4 import BeautifulSoup
+from playwright.async_api import Browser, BrowserContext, async_playwright
 
 from config.extraction_rules import RESULT_ROW_SELECTORS
 from config.schema import MARKET_SUMMARY_COLUMNS, RAW_COLUMNS
@@ -48,21 +53,36 @@ from utils.logging_utils import RunLogger, format_elapsed_hhmmss
 # Constants
 # =========================================================
 
-# Concurrent requests cap — fast enough to matter, polite enough not to trigger blocks
-_MAX_CONCURRENCY = 8
+# Concurrent page cap.
+# Two pages share a single browser context (same session cookies), which means
+# the DataDome cookie obtained on the warm-up is reused by all searches.
+# More than 2-3 simultaneous pages starts to look like bot traffic.
+_MAX_CONCURRENCY = 2
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/133.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
+# Markers that indicate eBay served a bot-detection page instead of results.
+_BOT_BLOCK_MARKERS = [
+    "<title>Access Denied</title>",
+    "<h1>Access Denied</h1>",
+    "Pardon Our Interruption",   # DataDome JS challenge interstitial
+    "verify you are a human",
+    "verify you're not a robot",
+    "Please complete the security check",
+    "robot check",
+    "g-recaptcha",
+    "errors.edgesuite.net",
+]
+
+_EBAY_HOME_URL = "https://www.ebay.com"
+
+# Stealth init script — patches the most common headless-Chrome fingerprinting
+# signals before any page JS runs.  DataDome checks navigator.webdriver and
+# a handful of other properties; removing them greatly reduces challenge rate.
+_STEALTH_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+window.chrome = { runtime: {} };
+"""
 
 
 # =========================================================
@@ -128,6 +148,11 @@ def _bs_first_attr(tag: Any, selectors: list[str], attr: str) -> str | None:
         except Exception:
             continue
     return None
+
+
+def _is_bot_block_page(html: str) -> bool:
+    """Return True if the HTML looks like a bot-detection or access-denied page."""
+    return any(marker in html for marker in _BOT_BLOCK_MARKERS)
 
 
 def _extract_result_count_bs(soup: BeautifulSoup) -> int | None:
@@ -231,28 +256,66 @@ def _extract_rows_from_page(
 
 
 # =========================================================
-# Async fetch with retry
+# Playwright page fetch
 # =========================================================
 
-async def _fetch(
-    client: httpx.AsyncClient,
+async def _fetch_page(
+    context: BrowserContext,
     url: str,
     logger: RunLogger,
-    retries: int = 2,
+    retries: int = 3,
 ) -> str | None:
-    """GET a URL and return the response body. Retries on transient errors."""
+    """
+    Navigate to a URL using a new Playwright page and return the final HTML.
+
+    Each call creates and closes its own page so pages don't accumulate.
+    The shared BrowserContext passes session cookies (including the DataDome
+    cookie obtained during warm-up) to every request automatically.
+
+    Returns None if the page can't be fetched or bot-block persists after retries.
+    """
     for attempt in range(1, retries + 2):
+        page = await context.new_page()
         try:
-            resp = await client.get(url, follow_redirects=True)
-            resp.raise_for_status()
-            return resp.text
+            await page.add_init_script(_STEALTH_SCRIPT)
+            await page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=30_000,
+            )
+            # Give DataDome's JS puzzle time to run and redirect if needed.
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+
+            html = await page.content()
+
+            if _is_bot_block_page(html):
+                wait = random.uniform(3.0, 6.0) * attempt
+                logger.log(
+                    f"  Bot-block page detected (attempt {attempt}) — "
+                    f"retrying in {wait:.1f}s"
+                )
+                await page.close()
+                if attempt <= retries:
+                    await asyncio.sleep(wait)
+                    continue
+                logger.log(f"  Bot-block persisted after {retries + 1} attempts: {url}")
+                return None
+
+            return html
+
         except Exception as exc:
+            await page.close()
             if attempt <= retries:
-                wait = random.uniform(1.0, 2.5) * attempt
-                logger.log(f"  Fetch error (attempt {attempt}): {exc} — retrying in {wait:.1f}s")
+                wait = random.uniform(2.0, 5.0) * attempt
+                logger.log(
+                    f"  Fetch error (attempt {attempt}): {exc} — retrying in {wait:.1f}s"
+                )
                 await asyncio.sleep(wait)
             else:
                 logger.log(f"  Fetch failed after {retries + 1} attempts: {url} — {exc}")
+        else:
+            await page.close()
+
     return None
 
 
@@ -262,7 +325,7 @@ async def _fetch(
 
 async def _scrape_one_search(
     sem: asyncio.Semaphore,
-    client: httpx.AsyncClient,
+    context: BrowserContext,
     year: int,
     make: str,
     model: str,
@@ -292,10 +355,10 @@ async def _scrape_one_search(
         for page_num in range(1, config.max_pages_per_search + 1):
             url = build_search_url(year, make, model, part, config, page_num)
 
-            # Small random jitter to spread out concurrent request timing
-            await asyncio.sleep(random.uniform(0.05, 0.3))
+            # Random jitter between pages to avoid looking like rapid-fire bot traffic
+            await asyncio.sleep(random.uniform(0.5, 1.5))
 
-            html = await _fetch(client, url, logger)
+            html = await _fetch_page(context, url, logger)
             if not html:
                 break
 
@@ -340,11 +403,14 @@ async def _scrape_one_search(
             logger.log(f"    Page {page_num}: {len(page_rows)} rows")
             rows.extend(page_rows)
 
-            # Weak first-page guard: skip further pages when results are sparse
+            # Weak first-page guard: skip further pages when results are sparse.
+            # Log an HTML snippet so we can diagnose selector mismatches vs real empties.
             if page_num == 1 and len(page_rows) < config.weak_result_skip_threshold:
+                html_preview = html[:500].replace("\n", " ").strip()
                 logger.log(
                     f"    Weak first page ({len(page_rows)} rows) — skipping remaining pages."
                 )
+                logger.log(f"    HTML preview: {html_preview}")
                 break
 
         return rows, summary, pages_loaded
@@ -361,6 +427,9 @@ async def _run_scrape_async(
     """
     Core async implementation: build all search tasks, run them concurrently,
     collect results, and return DataFrames in memory.
+
+    Uses a single shared BrowserContext so the DataDome cookie obtained during
+    warm-up is reused by all search pages within the same run.
     """
     completed_searches = (
         load_completed_searches(config.checkpoint_path) if config.enable_resume else set()
@@ -383,14 +452,53 @@ async def _run_scrape_async(
 
     sem = asyncio.Semaphore(_MAX_CONCURRENCY)
 
-    async with httpx.AsyncClient(headers=_HEADERS, timeout=30.0) as client:
+    async with async_playwright() as pw:
+        browser: Browser = await pw.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        )
+        context: BrowserContext = await browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/133.0.0.0 Safari/537.36"
+            ),
+            locale="en-US",
+            timezone_id="America/New_York",
+            viewport={"width": 1366, "height": 768},
+            java_script_enabled=True,
+        )
+
+        # ---- Session warm-up ----
+        # Visit eBay's homepage so DataDome can fingerprint the browser and
+        # issue its session cookie before any search requests start.
+        # Subsequent pages from the same context carry that cookie automatically.
+        logger.log("Warming session via eBay homepage …")
+        warmup_page = await context.new_page()
+        await warmup_page.add_init_script(_STEALTH_SCRIPT)
+        try:
+            await warmup_page.goto(_EBAY_HOME_URL, wait_until="domcontentloaded", timeout=30_000)
+            await asyncio.sleep(random.uniform(2.0, 4.0))
+            logger.log(f"  Warm-up complete: {warmup_page.url}")
+        except Exception as exc:
+            logger.log(f"  Warm-up failed (continuing anyway): {exc}")
+        finally:
+            await warmup_page.close()
+
         coroutines = [
-            _scrape_one_search(sem, client, year, make, model, part, config, logger)
+            _scrape_one_search(sem, context, year, make, model, part, config, logger)
             for year, make, model, part in tasks
         ]
         results = await asyncio.gather(*coroutines, return_exceptions=True)
 
-    # Collect results and write to CSV
+        await context.close()
+        await browser.close()
+
+    # Collect results from all completed tasks
     all_rows: list[dict] = []
     all_summaries: list[dict] = []
     total_pages = 0
@@ -455,8 +563,9 @@ def run_scrape(config: ScrapeConfig) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     Flow:
     1. Create logs directory and open run logger
     2. Resume prior checkpoint if enabled
-    3. Run all part searches concurrently with bounded parallelism
-    4. Return collected DataFrames and stats (no CSV I/O)
+    3. Warm browser session via eBay homepage (DataDome cookie acquisition)
+    4. Run all part searches concurrently with bounded parallelism
+    5. Return collected DataFrames and stats (no CSV I/O)
     """
     run_start = time.time()
 
@@ -466,7 +575,7 @@ def run_scrape(config: ScrapeConfig) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     logger = RunLogger(config.scrape_log_path)
 
     logger.log("=" * 72)
-    logger.log("STARTING SCRAPE RUN  [async httpx]")
+    logger.log("STARTING SCRAPE RUN  [Playwright / Chromium]")
     logger.log(f"Run ID:  {config.run_id}")
     logger.log(f"Scope:   {config.search_scope}")
     logger.log(f"Log:     {config.scrape_log_path}")
