@@ -13,6 +13,84 @@ const jobProgress    = document.getElementById("jobProgress");
 const historySection = document.getElementById("historySection");
 const historyList    = document.getElementById("historyList");
 
+// =========================================================
+// Vehicle cascading selects (NHTSA vPIC)
+// =========================================================
+
+const yearEl  = document.getElementById("year");
+const makeEl  = document.getElementById("make");
+const modelEl = document.getElementById("model");
+
+// Populate year options
+(function populateYears() {
+  const max = new Date().getFullYear() + 1;
+  for (let y = max; y >= 1975; y--) {
+    const opt = document.createElement("option");
+    opt.value = y;
+    opt.textContent = y;
+    yearEl.appendChild(opt);
+  }
+})();
+
+// Year change: enable model reset but makes are already loaded
+yearEl.addEventListener("change", () => {
+  _resetSelect(modelEl, "— select make —", true);
+  // If a make is already chosen, reload models for the new year
+  if (makeEl.value && yearEl.value) loadModels(yearEl.value, makeEl.value);
+});
+
+makeEl.addEventListener("change", () => {
+  _resetSelect(modelEl, "— select make —", true);
+  if (makeEl.value && yearEl.value) loadModels(yearEl.value, makeEl.value);
+});
+
+function _resetSelect(el, placeholder, disabled) {
+  el.innerHTML = `<option value="">${placeholder}</option>`;
+  el.disabled  = disabled;
+}
+
+async function loadMakes() {
+  makeEl.innerHTML = '<option value="">Loading makes…</option>';
+  makeEl.disabled  = true;
+  try {
+    const r    = await fetch("/api/vehicles/makes");
+    const data = await r.json();
+    makeEl.innerHTML = '<option value="">— Make —</option>' +
+      (data.makes || []).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+    makeEl.disabled = false;
+  } catch {
+    makeEl.innerHTML = '<option value="">Error loading makes</option>';
+  }
+}
+
+async function loadModels(year, make) {
+  modelEl.innerHTML = '<option value="">Loading…</option>';
+  modelEl.disabled  = true;
+  try {
+    const r    = await fetch(`/api/vehicles/models?make=${encodeURIComponent(make)}&year=${year}`);
+    const data = await r.json();
+    const models = data.models || [];
+    modelEl.innerHTML = '<option value="">— Model —</option>' +
+      models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+    modelEl.disabled = false;
+  } catch {
+    modelEl.innerHTML = '<option value="">Error loading models</option>';
+  }
+}
+
+// Set year/make/model selects programmatically (used by re-run from history)
+// Makes are already loaded — just set make value, then load models
+async function setVehicleSelects(year, make, model) {
+  yearEl.value = year || "";
+  if (make && makeEl.querySelector(`option[value="${CSS.escape(make)}"]`)) {
+    makeEl.value = make;
+    if (model && year) {
+      await loadModels(year, make);
+      modelEl.value = model;
+    }
+  }
+}
+
 let _pollTimer    = null;
 let _jobStartTime = null;
 
@@ -66,7 +144,8 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
   }
 });
 
-loadSettings();
+// Fire all independent page-load fetches in parallel
+Promise.all([loadSettings(), loadMakes(), loadHistory()]);
 
 // =========================================================
 // Search
@@ -250,17 +329,13 @@ function renderHistory(searches) {
   }).join("");
 }
 
-function rerunSearch(year, make, model) {
+async function rerunSearch(year, make, model) {
   document.getElementById("vin").value    = "";
-  document.getElementById("year").value   = year;
-  document.getElementById("make").value   = make;
-  document.getElementById("model").value  = model;
   document.getElementById("trim").value   = "";
   document.getElementById("engine").value = "";
+  await setVehicleSelects(year, make, model);
   runSearch();
 }
-
-loadHistory();
 
 // =========================================================
 // VIN Scanner

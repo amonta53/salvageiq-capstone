@@ -26,6 +26,7 @@ from app.db import (
     upsert_vehicle,
 )
 from app.salvage_service import SalvageIQRequest, run_vehicle_analysis
+from app.vehicle_catalog import fetch_makes, fetch_models
 from app.vehicle_lookup import build_vehicle_key, normalize_vehicle_input
 
 
@@ -52,6 +53,27 @@ def startup() -> None:
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+# =========================================================
+# Vehicle catalog (makes / models)
+# =========================================================
+
+@app.get("/api/vehicles/makes")
+async def list_makes() -> dict:
+    """Return all Passenger Car makes, cached from NHTSA."""
+    makes = await fetch_makes()
+    return {"makes": makes}
+
+
+@app.get("/api/vehicles/models")
+async def list_models(make: str, year: int) -> dict:
+    """
+    Return models for a given make + year.
+    Fires two NHTSA calls in parallel (year-specific + generic fallback).
+    """
+    models = await fetch_models(make=make, year=year)
+    return {"models": models}
 
 
 # =========================================================

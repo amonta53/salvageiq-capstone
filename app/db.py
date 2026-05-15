@@ -118,6 +118,16 @@ def init_db() -> None:
                 default_shipping_adjustment REAL NOT NULL DEFAULT 0.0,
                 risk_tolerance TEXT NOT NULL DEFAULT 'medium'
             );
+
+            CREATE TABLE IF NOT EXISTS vehicle_catalog_cache (
+                cache_type TEXT NOT NULL,
+                make TEXT,
+                year INTEGER,
+                data TEXT NOT NULL,
+                cached_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                PRIMARY KEY (cache_type, make, year)
+            );
         """)
         _migrate(conn)
         _seed_pull_profiles(conn)
@@ -465,6 +475,59 @@ def get_recent_searches(conn: sqlite3.Connection, limit: int = 15) -> list[dict]
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# =========================================================
+# Vehicle catalog cache
+# =========================================================
+
+def get_catalog_cache(
+    conn: sqlite3.Connection,
+    *,
+    cache_type: str,
+    make: str | None,
+    year: int | None,
+) -> list | None:
+    """Return cached data list if present and not expired, else None."""
+    import json as _json
+    now = _now()
+    row = conn.execute(
+        """
+        SELECT data FROM vehicle_catalog_cache
+        WHERE cache_type = ? AND make IS ? AND year IS ? AND expires_at > ?
+        """,
+        (cache_type, make, year, now),
+    ).fetchone()
+    if row:
+        return _json.loads(row["data"])
+    return None
+
+
+def set_catalog_cache(
+    conn: sqlite3.Connection,
+    *,
+    cache_type: str,
+    make: str | None,
+    year: int | None,
+    data: list,
+    ttl_days: int = 30,
+) -> None:
+    """Upsert a catalog cache entry with a TTL."""
+    import json as _json
+    from datetime import timedelta
+    now    = datetime.now(timezone.utc)
+    expires = (now + timedelta(days=ttl_days)).isoformat()
+    conn.execute(
+        """
+        INSERT INTO vehicle_catalog_cache (cache_type, make, year, data, cached_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(cache_type, make, year) DO UPDATE SET
+            data      = excluded.data,
+            cached_at = excluded.cached_at,
+            expires_at = excluded.expires_at
+        """,
+        (cache_type, make, year, _json.dumps(data), now.isoformat(), expires),
+    )
 
 
 # =========================================================

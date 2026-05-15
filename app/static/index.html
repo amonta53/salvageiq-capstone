@@ -53,15 +53,21 @@
           </div>
           <div class="col-md-2">
             <label for="year" class="form-label">Year</label>
-            <input id="year" type="number" class="form-control" min="1975" max="2035" placeholder="2017" />
+            <select id="year" class="form-select">
+              <option value="">— Year —</option>
+            </select>
           </div>
           <div class="col-md-3">
             <label for="make" class="form-label">Make</label>
-            <input id="make" class="form-control" placeholder="Chrysler" />
+            <select id="make" class="form-select" disabled>
+              <option value="">— select year —</option>
+            </select>
           </div>
           <div class="col-md-3">
             <label for="model" class="form-label">Model</label>
-            <input id="model" class="form-control" placeholder="Pacifica" />
+            <select id="model" class="form-select" disabled>
+              <option value="">— select make —</option>
+            </select>
           </div>
           <div class="col-md-2">
             <label for="trim" class="form-label">Trim <span class="text-secondary">(optional)</span></label>
